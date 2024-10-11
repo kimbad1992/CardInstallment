@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>할부 정보</title>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        .cancelled {
+            text-decoration: line-through;
+            color: gray;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container mt-4">
+        <h2>할부 정보</h2>
+        
+        <form id="transaction-form">
+            <div class="form-group">
+                <label for="transaction-date">거래일</label>
+                <input type="date" class="form-control" id="transaction-date" required>
+            </div>
+            <div class="form-group">
+                <label for="total-amount">총 할부금액</label>
+                <input type="number" class="form-control" id="total-amount" required>
+            </div>
+            <div class="form-group">
+                <label for="total-months">총 할부 개월수</label>
+                <input type="number" class="form-control" id="total-months" required>
+            </div>
+            <div class="form-group">
+                <label for="item-name">품목명</label>
+                <input type="text" class="form-control" id="item-name" required>
+            </div>
+            <div class="form-group">
+                <label for="payment-location">결제 위치</label>
+                <input type="text" class="form-control" id="payment-location" required>
+            </div>
+            <button type="submit" class="btn btn-primary">추가</button>
+        </form>
+
+        <div class="buttonGroup">
+            <button id="toggle-button" class="btn btn-primary mt-2">종료된 항목 숨기기</button>
+
+            <select id="sort-select" class="form-control mt-2" style="width: auto;">
+                <option value="">정렬...</option>
+                <option value="date">거래일</option>
+                <option value="amount">총 할부금액</option>
+                <option value="currentAmount">이번달 청구금액</option>
+                <option value="installment">회차</option>
+                <option value="balance">잔액</option>
+                <option value="totalMonths">총 할부 개월수</option>
+                <option value="remainingMonths">잔여 할부 개월수</option>
+            </select>            
+        </div>
+        <table class="table mt-4 text-nowrap">
+            <thead>
+                <tr>
+                    <th>거래일</th>
+                    <th>총 할부금액</th>
+                    <th>이번달 청구 금액</th>
+                    <th>회차</th>
+                    <th>잔액</th>
+                    <th>총 할부 개월수</th>
+                    <th>결제 위치</th>
+                    <th>품목명</th>
+                    <th>잔여 할부 개월수</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody id="transaction-list"></tbody>
+        </table>
+        
+
+        <div id="summary" class="mt-4">
+            <strong>이번달 청구금액의 총합:</strong> <span id="current-billing-total"></span>원<br>
+            <strong>잔액(잔여 총금액):</strong> <span id="balance-total"></span>원
+        </div>
+    </div>
+
+    <script>
+// 로컬 스토리지에서 거래 정보 가져오기
+var transactions = JSON.parse(localStorage.getItem('transactions')) || [];
+
+// 거래 정보 표시하기
+var transactionList = document.getElementById('transaction-list');
+
+var hideCompleted = false;
+
+// 할부 종료 항목 숨기기 토글 버튼 이벤트 리스너
+var toggleButton = document.getElementById('toggle-button');
+toggleButton.addEventListener('click', function() {
+    hideCompleted = !hideCompleted;
+    updateTransactionList();
+    toggleButton.textContent = hideCompleted ? '종료된 항목 보이기' : '종료된 항목 숨기기';
+});
+
+// 정렬 드롭다운 메뉴 이벤트 리스너
+var sortSelect = document.getElementById('sort-select');
+sortSelect.addEventListener('change', function() {
+    var value = sortSelect.value;
+    if (value === 'date') {
+        transactions.sort(function(a, b) {
+            return new Date(b.transactionDate) - new Date(a.transactionDate);
+        });
+    } else if (value === 'amount') {
+        transactions.sort(function(a, b) {
+            return b.totalAmount - a.totalAmount;
+        });
+    } else if (value === 'currentAmount') {
+        transactions.sort(function(a, b) {
+            return b.currentBillingAmount - a.currentBillingAmount;
+        });
+    } else if (value === 'installment') {
+        transactions.sort(function(a, b) {
+            return b.currentMonth - a.currentMonth;
+        });
+    } else if (value === 'balance') {
+        transactions.sort(function(a, b) {
+            return b.balance - a.balance;
+        });
+    } else if (value === 'totalMonths') {
+        transactions.sort(function(a, b) {
+            return b.totalMonths - a.totalMonths;
+        });
+    } else if (value === 'remainingMonths') {
+        transactions.sort(function(a, b) {
+            return b.remainingMonths - a.remainingMonths;
+        });
+    }
+    updateTransactionList();
+});
+
+// 거래 정보 표시하기
+transactions.forEach(function(transaction) {
+    transaction.currentMonth = calculateCurrentMonth(transaction.transactionDate);
+    transaction.currentBillingAmount = calculateCurrentBillingAmount(transaction.totalAmount, transaction.totalMonths, transaction.currentMonth);
+    transaction.balance = calculateBalance(transaction.totalAmount, transaction.totalMonths, transaction.currentMonth);
+    transaction.remainingMonths = calculateRemainingMonths(transaction.totalMonths, transaction.currentMonth);
+    addTransactionToUI(transaction);
+});
+
+// 요약 정보 업데이트
+updateSummary();
+
+// 폼 제출 이벤트 처리
+var form = document.getElementById('transaction-form');
+form.addEventListener('submit', function(event) {
+  event.preventDefault();
+
+  var transactionDate = document.getElementById('transaction-date').value;
+  var totalAmount = parseInt(document.getElementById('total-amount').value);
+  var totalMonths = parseInt(document.getElementById('total-months').value);
+  var itemName = document.getElementById('item-name').value;
+  var paymentLocation = document.getElementById('payment-location').value;
+
+  var transaction = {
+    id: new Date().getTime(),
+    transactionDate: transactionDate,
+    totalAmount: totalAmount,
+    totalMonths: totalMonths,
+    itemName: itemName,
+    paymentLocation: paymentLocation
+  };
+
+  transaction.currentMonth = calculateCurrentMonth(transactionDate);
+  transaction.currentBillingAmount = calculateCurrentBillingAmount(totalAmount, totalMonths, transaction.currentMonth);
+  transaction.balance = calculateBalance(totalAmount, totalMonths, transaction.currentMonth);
+  transaction.remainingMonths = calculateRemainingMonths(totalMonths, transaction.currentMonth);
+
+  transactions.push(transaction);
+  localStorage.setItem('transactions', JSON.stringify(transactions));
+
+  addTransactionToUI(transaction);
+  updateSummary();
+
+  form.reset();
+});
+
+// 거래 정보를 테이블에 추가하는 함수
+function addTransactionToUI(transaction) {
+  var tableRow = document.createElement('tr');
+
+  // 할부 개월수가 종료되었는지 확인하여 스타일 적용
+  if (transaction.remainingMonths <= 0) {
+    tableRow.classList.add('cancelled');
+  }
+
+  // 거래 정보 표시
+  tableRow.innerHTML = `
+    <td>${transaction.transactionDate}</td>
+    <td>${formatNumber(transaction.totalAmount)}원</td>
+    <td>${formatNumber(transaction.currentBillingAmount)}원</td>
+    <td>${transaction.currentMonth > 0 ? transaction.currentMonth + '개월' : '-'}</td>
+    <td>${transaction.balance > 0 ? formatNumber(transaction.balance) + '원' : '-'}</td>
+    <td>${transaction.totalMonths}개월</td>
+    <td>${transaction.paymentLocation}</td>
+    <td>${transaction.itemName}</td>
+    <td>${transaction.remainingMonths > 0 ? transaction.remainingMonths + '개월' : '-'}</td>
+    <td><button type="button" class="btn btn-danger btn-sm delete-btn" data-id="${transaction.id}">삭제</button></td>
+  `;
+  transactionList.appendChild(tableRow);
+
+  // 삭제 버튼에 이벤트 리스너 추가
+  tableRow.querySelector('.delete-btn').addEventListener('click', function() {
+      deleteTransaction(transaction.id);
+  });
+}
+
+// 요약 정보 업데이트 함수
+function updateSummary() {
+    var currentBillingTotal = transactions.reduce(function (total, transaction) {
+        return total + transaction.currentBillingAmount;
+    }, 0);
+
+    var balanceTotal = transactions.reduce(function (total, transaction) {
+            return total + transaction.balance;
+        }, 0);
+
+    var currentBillingTotalElement = document.getElementById('current-billing-total');
+    var balanceTotalElement = document.getElementById('balance-total');
+
+    currentBillingTotalElement.textContent = formatNumber(currentBillingTotal);
+    balanceTotalElement.textContent = formatNumber(balanceTotal);
+}
+
+// 숫자 포맷팅 함수
+function formatNumber(number) {
+    return number.toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
+
+// 거래 삭제 함수
+function deleteTransaction(id) {
+  // ID를 기준으로 거래를 찾아서 삭제
+  var index = transactions.findIndex(function(transaction) {
+    return transaction.id === id;
+  });
+
+  if (index !== -1) {
+    transactions.splice(index, 1);
+    localStorage.setItem('transactions', JSON.stringify(transactions));
+    updateTransactionList();
+    updateSummary();
+  }
+}
+
+// 거래 목록 업데이트 함수
+function updateTransactionList() {
+    transactionList.innerHTML = '';
+    transactions.forEach(function(transaction) {
+        if (!hideCompleted || transaction.remainingMonths > 0) {
+            addTransactionToUI(transaction);
+        }
+    });
+}
+
+// 이번달 청구 금액 계산 함수
+function calculateCurrentBillingAmount(totalAmount, totalMonths, currentMonth) {
+    var monthlyAmount = Math.floor(totalAmount / totalMonths);
+    return currentMonth <= totalMonths ? monthlyAmount : 0;
+}
+
+// 회차 계산 함수
+function calculateCurrentMonth(transactionDate) {
+    var currentDate = new Date();
+    var selectedDate = new Date(transactionDate);
+
+    var yearDiff = currentDate.getFullYear() - selectedDate.getFullYear();
+    var monthDiff = currentDate.getMonth() - selectedDate.getMonth();
+
+    return yearDiff * 12 + monthDiff + 1;
+}
+
+// 잔액 계산 함수
+function calculateBalance(totalAmount, totalMonths, currentMonth) {
+    if (currentMonth > totalMonths) {
+        return 0;
+    }
+    return totalAmount - (Math.floor(totalAmount / totalMonths) * currentMonth);
+}
+
+// 잔여 할부 개월수 계산 함수
+function calculateRemainingMonths(totalMonths, currentMonth) {
+    return Math.max(0, totalMonths - currentMonth + 1);
+}
+
+</script>
+</body>
+</html>
