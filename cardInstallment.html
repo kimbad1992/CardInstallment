@@ -77,7 +77,9 @@
 
         <div id="summary" class="mt-4">
             <strong>이번달 청구금액의 총합:</strong> <span id="current-billing-total"></span>원<br>
-            <strong>잔액(잔여 총금액):</strong> <span id="balance-total"></span>원
+            <strong>잔액(잔여 총금액):</strong> <span id="balance-total"></span>원<br>
+            <strong>납부 완료한 총 금액:</strong> <span id="paid-total"></span>원<br>
+            <strong>다음달 청구 예상 금액:</strong> <span id="next-billing-total"></span>원
         </div>
     </div>
 
@@ -217,14 +219,29 @@ function updateSummary() {
     }, 0);
 
     var balanceTotal = transactions.reduce(function (total, transaction) {
-            return total + transaction.balance;
-        }, 0);
+        return total + transaction.balance;
+    }, 0);
+
+    var paidTotal = transactions.reduce(function (total, transaction) {
+        return total + (transaction.totalAmount - transaction.balance);
+    }, 0);
+
+    var nextBillingTotal = transactions.reduce(function (total, transaction) {
+        if (transaction.remainingMonths > 1) {
+            return total + calculateCurrentBillingAmount(transaction.totalAmount, transaction.totalMonths, transaction.currentMonth + 1);
+        }
+        return total;
+    }, 0);
 
     var currentBillingTotalElement = document.getElementById('current-billing-total');
     var balanceTotalElement = document.getElementById('balance-total');
+    var paidTotalElement = document.getElementById('paid-total');
+    var nextBillingTotalElement = document.getElementById('next-billing-total');
 
     currentBillingTotalElement.textContent = formatNumber(currentBillingTotal);
     balanceTotalElement.textContent = formatNumber(balanceTotal);
+    paidTotalElement.textContent = formatNumber(paidTotal);
+    nextBillingTotalElement.textContent = formatNumber(nextBillingTotal);
 }
 
 // 숫자 포맷팅 함수
@@ -259,7 +276,7 @@ function updateTransactionList() {
 
 // 이번달 청구 금액 계산 함수
 function calculateCurrentBillingAmount(totalAmount, totalMonths, currentMonth) {
-    var monthlyAmount = Math.floor(totalAmount / totalMonths);
+    var monthlyAmount = Math.round(totalAmount / totalMonths);
     return currentMonth <= totalMonths ? monthlyAmount : 0;
 }
 
@@ -279,7 +296,7 @@ function calculateBalance(totalAmount, totalMonths, currentMonth) {
     if (currentMonth > totalMonths) {
         return 0;
     }
-    return totalAmount - (Math.floor(totalAmount / totalMonths) * currentMonth);
+    return totalAmount - (Math.round(totalAmount / totalMonths) * currentMonth);
 }
 
 // 잔여 할부 개월수 계산 함수
